@@ -1,0 +1,10 @@
+*~
+*.bak
+*-bak
+schema/fp-lib-table
+*.hex
+*.elf
+*.o
+*.a
+.*
+!.gitignore
