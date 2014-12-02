@@ -5,56 +5,6 @@
 #include <avr/pgmspace.h>
 #include <util/delay.h>
 
-#ifdef DEBUG
-// an LCD is used for debugging purposes
-#include <hd44780_low.h>
-#include <hd44780fw.h>
-
-
-// The LCD configs
-#define DISPLAY_SIZE 0x20
-struct hd44780fw_conf lcd_conf;
-struct hd44780_l_conf lcd_low_conf;
-
-char *display;
-const char hexchars[0x10] = "0123456789abcdef";
-
-inline void init_display()
-{
-	display = malloc(DISPLAY_SIZE + 1);
-	for (char i = 0; i < DISPLAY_SIZE; i++) {
-		*(display + i) = ' ';
-	}
-	*(display + DISPLAY_SIZE) = 0;
-	// pins connected to PORTB
-	DDRB |= 1 | (1 << 7);
-	lcd_low_conf.en_i = 0;
-	lcd_low_conf.db4_i = 7;
-	lcd_low_conf.en_port = lcd_low_conf.db4_port = &PORTB;
-
-	// pins connected to PORTD
-	DDRD |= (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7);
-	lcd_low_conf.rs_i = 3;
-	lcd_low_conf.rw_i = 4;
-	lcd_low_conf.db5_i = 5;
-	lcd_low_conf.db6_i = 6;
-	lcd_low_conf.db7_i = 7;
-	lcd_low_conf.rs_port = lcd_low_conf.rw_port =
-		lcd_low_conf.db5_port = lcd_low_conf.db6_port =
-		lcd_low_conf.db7_port = &PORTD;
-
-	lcd_low_conf.line1_base_addr = 0x00;
-	lcd_low_conf.line2_base_addr = 0x40;
-	lcd_low_conf.dl = HD44780_L_FS_DL_4BIT;
-	lcd_conf.low_conf = &lcd_low_conf;
-	lcd_conf.total_chars = 32;
-	lcd_conf.font = HD44780_L_FS_F_58;
-	lcd_conf.lines = HD44780_L_FS_N_DUAL;
-
-	hd44780fw_init(&lcd_conf);
-}
-#endif
-
 const uint8_t PROGMEM gamma[] = {
 	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,
@@ -176,11 +126,6 @@ ISR(ADC_vect) {
 int main()
 {
 	uint8_t ax;
-#ifdef DEBUG
-	init_display();
-	display[0] = 'X'; display[5] = 'Y'; display[10] = 'Z';
-	hd44780fw_write(&lcd_conf, display, 0, HD44780FW_WR_NO_CLEAR_BEFORE);
-#endif
 	init_lights();
 	sei();
 	init_accel();
@@ -213,27 +158,6 @@ int main()
 		RED = pgm_read_byte(&gamma[(uint8_t)lvl[0]]);
 		GREEN = pgm_read_byte(&gamma[(uint8_t)lvl[1]]);
 		BLUE = pgm_read_byte(&gamma[(uint8_t)lvl[2]]);
-#ifdef DEBUG
-		for (int ax=0; ax<DOF; ax++) {
-			display[5 * ax + 1] = hexchars[(accel[ax] & 0xf000) >> 12];
-			display[5 * ax + 2] = hexchars[(accel[ax] & 0x0f00) >> 8];
-			display[5 * ax + 3] = hexchars[(accel[ax] & 0x00f0) >> 4];
-			display[5 * ax + 4] = hexchars[accel[ax] & 0x000f];
-		}
-		if (inlowsensmode) {
-			display[0xf] = 'o';
-		} else {
-			display[0xf] = '.';
-		}
-		for (ax=0; ax<DOF; ax++) {
-			int16_t diff = rest[ax] - accel[ax];
-			display[0x10 + 5 * ax + 1] = hexchars[(diff & 0xf000) >> 12];
-			display[0x10 + 5 * ax + 2] = hexchars[(diff & 0x0f00) >> 8];
-			display[0x10 + 5 * ax + 3] = hexchars[(diff & 0x00f0) >> 4];
-			display[0x10 + 5 * ax + 4] = hexchars[diff & 0x000f];
-		}
-		hd44780fw_write(&lcd_conf, display, 0, HD44780FW_WR_NO_CLEAR_BEFORE);
-#endif
 	}
 	return 0;
 }

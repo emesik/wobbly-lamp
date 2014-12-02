@@ -12,15 +12,10 @@ OBJDUMP=avr-objdump
 AVRDUDE=avrdude
 AVRSIZE=avr-size
 
-LIBS=hd44780fw customprocs hd44780
-LIBS_PATH=$(foreach n, $(LIBS), ./lib/lib$(n)/lib$(n).a)
-LIBS_LINK=$(foreach n, $(LIBS), -L./lib/lib$(n) -l$(n))
-INC=-I $(addprefix -I./lib/lib,$(LIBS))
+CFLAGS=-c -I . -mmcu=$(MCU) -Os -Wall -DF_CPU=$(F_CPU) -std=c99
+LDFLAGS=-mmcu=$(MCU)
 
-CFLAGS=-c -I $(INC) -mmcu=$(MCU) -Os -Wall -DF_CPU=$(F_CPU) -std=c99
-LDFLAGS=-mmcu=$(MCU) $(LIBS_LINK)
-
-all: $(LIBS_PATH) compile elf hex size
+all: compile elf hex size
 
 debug: CFLAGS += -DDEBUG -g
 debug: all
@@ -29,7 +24,7 @@ compile:
 	$(CC) $(CFLAGS) $(NAME).c -o $(NAME).o
 
 elf: compile
-	$(CC) $(LDFLAGS) $(NAME).o $(LIBS_LINK) -o $(NAME).elf
+	$(CC) $(LDFLAGS) $(NAME).o -o $(NAME).elf
 
 hex: elf
 	$(OBJCOPY) -j .text -j .data -O ihex $(NAME).elf $(NAME).hex
@@ -42,10 +37,5 @@ write:
 		-U flash:w:$(NAME).hex \
 		-U lfuse:w:$(FUSE_LOW):m -U hfuse:w:$(FUSE_HIGH):m
 
-.PHONY: $(LIBS_PATH)
-$(LIBS_PATH):
-	make -C $(dir $(@))
-
 clean:
 	rm -f $(NAME).o $(NAME).elf $(NAME).hex $(NAME).eep.hex
-	rm -f $(foreach n, $(LIBS), ./lib/lib$(n)/*.[ao])
