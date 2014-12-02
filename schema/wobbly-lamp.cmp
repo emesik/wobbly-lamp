@@ -1,4 +1,4 @@
-Cmp-Mod V01 Created by Cvpcb (2014-11-15 BZR 5288)-product   date = śro, 26 lis 2014, 00:43:26
+Cmp-Mod V01 Created by Cvpcb (2014-11-15 BZR 5288)-product   date = wto, 2 gru 2014, 13:42:41
 
 BeginCmp
 TimeStamp = /5474B742;
@@ -102,21 +102,21 @@ BeginCmp
 TimeStamp = /546B9812;
 Reference = Q1;
 ValeurCmp = IRLML0030TRPbF;
-IdModule  = Transistors_SMD:SOT23_FET-D+GS;
+IdModule  = Housings_SOT-23_SOT-143_TSOT-6:SOT23_FET_Handsoldering;
 EndCmp
 
 BeginCmp
 TimeStamp = /546B9A81;
 Reference = Q2;
 ValeurCmp = IRLML0030TRPbF;
-IdModule  = Transistors_SMD:SOT23_FET-D+GS;
+IdModule  = Housings_SOT-23_SOT-143_TSOT-6:SOT23_FET_Handsoldering;
 EndCmp
 
 BeginCmp
 TimeStamp = /546B9D28;
 Reference = Q3;
 ValeurCmp = IRLML0030TRPbF;
-IdModule  = Transistors_SMD:SOT23_FET-D+GS;
+IdModule  = Housings_SOT-23_SOT-143_TSOT-6:SOT23_FET_Handsoldering;
 EndCmp
 
 BeginCmp
@@ -183,16 +183,9 @@ IdModule  = Resistors_SMD:R_0805_HandSoldering;
 EndCmp
 
 BeginCmp
-TimeStamp = /5475179B;
-Reference = R10;
-ValeurCmp = 22k;
-IdModule  = Resistors_SMD:R_0805_HandSoldering;
-EndCmp
-
-BeginCmp
 TimeStamp = /54752ED3;
 Reference = RV1;
-ValeurCmp = 22k;
+ValeurCmp = 2k2;
 IdModule  = Potentiometers:Potentiometer_VishaySpectrol-Econtrim-Type36T;
 EndCmp
 
