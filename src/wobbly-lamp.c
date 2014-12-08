@@ -60,7 +60,7 @@ const int16_t PROGMEM bias[DOF] = {10,6,-6};
 void init_lights() {
 	DDRB |= (1 << PB1) | (1 << PB2) | (1 << PB3);
 	PORTB |= (1 << PB1) | (1 << PB2) | (1 << PB3);
-	// timers on /8 prescalers, fastPWM
+	// timers on /8 prescalers, phase-correct PWM
 	TCCR1A = (1 << COM1A1) | (1 << COM1B1) | (1 << WGM10);
 	TCCR1B = (1 << CS11);
 	TCCR2 = (1 << WGM20) | (1 << COM21) | (1 << CS21);
@@ -77,7 +77,6 @@ inline void go_hisens() {
 	inlowsensmode = 0;
 }
 
-
 void init_sensors() {
 	// X, Y, Z, decay inputs
 	DDRC = 0xff & ~((1 << PC3) | (1 << PC2) | (1 << PC1) | (1 << PC0));
@@ -87,7 +86,7 @@ void init_sensors() {
 	ADMUX = GENERAL_MUX | pgm_read_byte(&mux_sensors[0]);
 	// enable ADC, turn on interrupt, /128 prescaler giving 62,5kHz
 	ADCSRA = (1 << ADEN) | (1 << ADIE) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
-	// start next conversion
+	// start first conversion
 	ADCSRA |= (1 << ADSC);
 }
 
@@ -139,8 +138,8 @@ ISR(ADC_vect) {
 
 		for (uint8_t i=0; i < DOF; i++) {
 			int16_t defl;
-			// if current deflection from rest is bigger than the decaying one, use it as the new
-			// value
+			// if current deflection from rest is bigger than the decaying one,
+			// use it as the new value
 			defl = analog[i] - rest[i];
 			if (abs(defl) < REST_THRESHOLD) defl = 0;
 			if (abs(defl) > abs(trail_deflection[i]) + KICK_THRESHOLD)
