@@ -29,7 +29,8 @@ const uint8_t PROGMEM mux_sensors[SENSORS] = {
 #define RAISE_SENS_THR 0x20
 uint8_t inlowsensmode = 0;	// 6g instead of 1.5g enabled
 
-int16_t level[DOF] = {0x80, 0x80, 0x80};
+#define BASE_LIGHT_VOLUME	0xa0
+int16_t level[DOF] = {BASE_LIGHT_VOLUME, BASE_LIGHT_VOLUME, BASE_LIGHT_VOLUME};
 uint16_t decay_period = 0x10;
 
 const uint8_t PROGMEM gamma[0x100] = {
@@ -187,7 +188,7 @@ ISR(TIMER0_OVF_vect) {
 	// deflections to levels
 	d = 0;
 	for (ax=0; ax<DOF; ax++) {
-		level[ax] = trail_deflection[ax] + 0x80;	// set zero at 50% power
+		level[ax] = trail_deflection[ax] + BASE_LIGHT_VOLUME;
 		d += trail_deflection[ax];
 	}
 	d = d / DOF;
