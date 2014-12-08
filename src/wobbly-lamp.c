@@ -194,7 +194,7 @@ ISR(TIMER0_OVF_vect) {
 	// equalize total light amount
 	// what is added to one channel gets subtracted from others
 	for (ax=0; ax<DOF; ax++) {
-		level[ax] += d;
+		level[ax] -= d;
 	}
 	RED   = get_pwm_value(0, level[0]);
 	GREEN = get_pwm_value(1, level[1]);
