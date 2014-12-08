@@ -5,7 +5,28 @@
 #include <avr/pgmspace.h>
 #include <util/delay.h>
 
-const uint8_t PROGMEM gamma[] = {
+#define DOF 3
+int16_t accel[DOF] = {0,0,0};	// X, Y, Z
+int16_t trail_deflection[DOF] = {0,0,0};	// trailing deflection, subject to decaying
+#define REST_THRESH 5
+int16_t rest[DOF] = {0,0,-0x28};	// Z adjustment for Earth's g
+
+// use Vcc as reference, left-adjust result (8b precision)
+#define GENERAL_MUX (1 << REFS0) | (1 << ADLAR)
+#define ALL_MUX_MASK ((1 << MUX3) | (1 << MUX2) | (1 << MUX1) | (1 << MUX0))
+const uint8_t PROGMEM mux_axes[DOF] = {
+	(1 << MUX1),	// x @ ADC2
+	(1 << MUX0),	// y @ ADC1
+	0,				// z @ ADC0
+};
+#define LOWER_SENS_THR 0xa0
+#define RAISE_SENS_THR 0x20
+uint8_t inlowsensmode = 0;	// 6g instead of 1.5g enabled
+
+int16_t level[DOF] = {0x80, 0x80, 0x80};
+uint16_t decay_period = 0x40;
+
+const uint8_t PROGMEM gamma[0x100] = {
 	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,
 	1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,
@@ -24,7 +45,7 @@ const uint8_t PROGMEM gamma[] = {
 	215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255};
 
 // the default white balance
-const int16_t PROGMEM bias[] = {10,6,-6};
+const int16_t PROGMEM bias[DOF] = {10,6,-6};
 
 #define	RED		OCR1A
 #define GREEN	OCR1B
@@ -39,26 +60,6 @@ void init_lights() {
 	TCCR2 = (1 << WGM21) | (1 << WGM20) | (1 << COM21) | (1 << CS21);
 	RED = GREEN = BLUE = 0;
 }
-
-/***** General 3D config */
-#define DOF 3
-int16_t accel[DOF] = {0,0,0};	// X, Y, Z
-int16_t trail_deflection[DOF] = {0,0,0};	// trailing deflection, subject to decaying
-#define REST_THRESH 5
-int16_t rest[DOF] = {0,0,-0x28};
-
-/***** Accelerometer's IO config */
-// use Vcc as reference, left-adjust result (8b precision)
-#define GENERAL_MUX (1 << REFS0) | (1 << ADLAR)
-#define ALL_MUX_MASK ((1 << MUX3) | (1 << MUX2) | (1 << MUX1) | (1 << MUX0))
-const uint8_t PROGMEM mux_axes[DOF] = {
-	(1 << MUX1),	// x @ ADC2
-	(1 << MUX0),	// y @ ADC1
-	0,				// z @ ADC0
-};
-#define LOWER_SENS_THR 0xa0
-#define RAISE_SENS_THR 0x20
-uint8_t inlowsensmode = 0;	// 6g instead of 1.5g enabled
 
 inline void go_lowsens() {
 	PORTB |= (1 << PB6);
@@ -138,9 +139,6 @@ ISR(ADC_vect) {
 	// start conversion again
 	ADCSRA |= (1 << ADSC);
 }
-
-int16_t level[DOF] = {0x80, 0x80, 0x80};
-uint16_t decay_period = 0x40;
 
 void init_decay() {
 	TCCR0 |= (1 << CS01) | (1 << CS00);	// prescaler /64
