@@ -40,14 +40,14 @@ void init_lights() {
 /***** General 3D config */
 #define DOF 3
 int16_t accel[DOF] = {0,0,0};	// X, Y, Z
-uint8_t axis = 0;	// currently measured axis
 uint8_t zerog = 0;	// 0g indicator
 int16_t rest[DOF] = {0,0,0};
 
 /***** Accelerometer's IO config */
 // use Vcc as reference, left-adjust result (8b precision)
 #define GENERAL_MUX (1 << REFS0) | (1 << ADLAR)
-uint8_t mux_axes[DOF] = {
+#define ALL_MUX_MASK ((1 << MUX3) | (1 << MUX2) | (1 << MUX1) | (1 << MUX0))
+const uint8_t PROGMEM mux_axes[DOF] = {
 	(1 << MUX1),	// x @ ADC2
 	(1 << MUX0),	// y @ ADC1
 	0,				// z @ ADC0
@@ -71,7 +71,7 @@ void init_accel() {
 	DDRD &= ~(1 << PD2);									// 0g digital
 	DDRB |= (1 << PB6);										// g-select digital output
 	go_lowsens();
-	ADMUX = GENERAL_MUX | mux_axes[axis];
+	ADMUX = GENERAL_MUX | pgm_read_byte(&mux_axes[0]);
 	// enable ADC, turn on interrupt, /128 prescaler giving 62,5kHz
 	ADCSRA = (1 << ADEN) | (1 << ADIE) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
 	// start next conversion
@@ -80,11 +80,17 @@ void init_accel() {
 
 
 ISR(ADC_vect) {
-	static uint8_t clk = 0;	// interrupt counter
 	static uint8_t inc_sens = 1, dec_sens = 0;
 	int16_t val;
+	uint8_t axis = 0;	// currently measured axis
 
-	// read current axis
+	// check which axis has been measured
+	for (axis=0; axis < DOF; axis++) {
+		if ((ADMUX & ALL_MUX_MASK) == pgm_read_byte(&mux_axes[axis]))
+			break;
+	}
+
+	// read the analog value
 	val = ADCH - 0x80;	// normalize to 0
 	if (inlowsensmode) val = val << 2;	// 6g to 1.5g
 
@@ -114,12 +120,10 @@ ISR(ADC_vect) {
 	}
 
 	// reset all MUX bits then set to next axis
-	ADMUX = GENERAL_MUX | mux_axes[axis];
+	ADMUX = GENERAL_MUX | pgm_read_byte(&mux_axes[axis]);
 
 	// start conversion again
 	ADCSRA |= (1 << ADSC);
-
-	clk++;
 }
 
 
