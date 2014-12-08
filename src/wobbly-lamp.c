@@ -54,8 +54,8 @@ const uint8_t PROGMEM gamma[0x100] = {
 const int16_t PROGMEM bias[DOF] = {10,6,-6};
 
 #define	RED		OCR1A
-#define GREEN	OCR1B
-#define BLUE	OCR2
+#define	GREEN	OCR1B
+#define	BLUE	OCR2
 
 void init_lights() {
 	DDRB |= (1 << PB1) | (1 << PB2) | (1 << PB3);
@@ -103,8 +103,13 @@ ISR(ADC_vect) {
 	}
 
 	// read the analog value
-	val = -0x80 + ADCH;	// normalize to 0
-	if ((sensor < DOF) && inlowsensmode) val = val * 4;	// 6g to 1.5g
+	val = ADCH;
+	if (sensor < DOF) {
+		// X, Y, Z get normalized to 0
+		val -= 0x80;
+		// rescale 6g to 1.5g if we are in low sensitivity mode
+		if (inlowsensmode) val = val * 4;
+	}
 
 	// store the value
 	analog[sensor] = val;
