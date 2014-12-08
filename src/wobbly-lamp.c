@@ -5,26 +5,32 @@
 #include <avr/pgmspace.h>
 #include <util/delay.h>
 
+// SENSORS is the number of analog inputs we read, while first DOF of them
+// are accelerometer's data
+#define SENSORS 4
 #define DOF 3
-int16_t accel[DOF] = {0,0,0};	// X, Y, Z
+#define DECAY_IDX 3
+int16_t analog[SENSORS] = {0,0,0,0};	// X, Y, Z, decay
 int16_t trail_deflection[DOF] = {0,0,0};	// trailing deflection, subject to decaying
-#define REST_THRESH 5
 int16_t rest[DOF] = {0,0,-0x28};	// Z adjustment for Earth's g
+#define KICK_THRESHOLD 12
+#define REST_THRESHOLD 4
 
 // use Vcc as reference, left-adjust result (8b precision)
 #define GENERAL_MUX (1 << REFS0) | (1 << ADLAR)
 #define ALL_MUX_MASK ((1 << MUX3) | (1 << MUX2) | (1 << MUX1) | (1 << MUX0))
-const uint8_t PROGMEM mux_axes[DOF] = {
+const uint8_t PROGMEM mux_sensors[SENSORS] = {
 	(1 << MUX1),	// x @ ADC2
 	(1 << MUX0),	// y @ ADC1
 	0,				// z @ ADC0
+	(1 << MUX1) | (1 << MUX0),	// decay @ ADC3
 };
 #define LOWER_SENS_THR 0xa0
 #define RAISE_SENS_THR 0x20
 uint8_t inlowsensmode = 0;	// 6g instead of 1.5g enabled
 
 int16_t level[DOF] = {0x80, 0x80, 0x80};
-uint16_t decay_period = 0x40;
+uint16_t decay_period = 0x10;
 
 const uint8_t PROGMEM gamma[0x100] = {
 	0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
@@ -56,8 +62,8 @@ void init_lights() {
 	PORTB |= (1 << PB1) | (1 << PB2) | (1 << PB3);
 	// timers on /8 prescalers, fastPWM
 	TCCR1A = (1 << COM1A1) | (1 << COM1B1) | (1 << WGM10);
-	TCCR1B = (1 << WGM12) | (1 << CS11);
-	TCCR2 = (1 << WGM21) | (1 << WGM20) | (1 << COM21) | (1 << CS21);
+	TCCR1B = (1 << CS11);
+	TCCR2 = (1 << WGM20) | (1 << COM21) | (1 << CS21);
 	RED = GREEN = BLUE = 0;
 }
 
@@ -71,12 +77,14 @@ inline void go_hisens() {
 	inlowsensmode = 0;
 }
 
-void init_accel() {
-	DDRC = 0xff & ~((1 << PC2) | (1 << PC1) | (1 << PC0));	// X, Y, Z analog
+
+void init_sensors() {
+	// X, Y, Z, decay inputs
+	DDRC = 0xff & ~((1 << PC3) | (1 << PC2) | (1 << PC1) | (1 << PC0));
 	DDRD &= ~(1 << PD2);									// 0g digital
 	DDRB |= (1 << PB6);										// g-select digital output
 	go_lowsens();
-	ADMUX = GENERAL_MUX | pgm_read_byte(&mux_axes[0]);
+	ADMUX = GENERAL_MUX | pgm_read_byte(&mux_sensors[0]);
 	// enable ADC, turn on interrupt, /128 prescaler giving 62,5kHz
 	ADCSRA = (1 << ADEN) | (1 << ADIE) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
 	// start next conversion
@@ -86,29 +94,31 @@ void init_accel() {
 ISR(ADC_vect) {
 	static uint8_t inc_sens = 1, dec_sens = 0;
 	int16_t val;
-	uint8_t axis = 0;	// currently measured axis
+	uint8_t sensor = 0;	// currently measured axis
 
 	// check which axis has been measured
-	for (axis=0; axis < DOF; axis++) {
-		if ((ADMUX & ALL_MUX_MASK) == pgm_read_byte(&mux_axes[axis]))
+	for (sensor = 0; sensor < DOF; sensor++) {
+		if ((ADMUX & ALL_MUX_MASK) == pgm_read_byte(&mux_sensors[sensor]))
 			break;
 	}
 
 	// read the analog value
-	val = ADCH - 0x80;	// normalize to 0
-	if (inlowsensmode) val = val << 2;	// 6g to 1.5g
+	val = -0x80 + ADCH;	// normalize to 0
+	if ((sensor < DOF) && inlowsensmode) val = val * 4;	// 6g to 1.5g
 
 	// store the value
-	accel[axis] = val;
-	// next axis
-	axis = (axis + 1) % DOF;
+	analog[sensor] = val;
+	// next input
+	sensor = (sensor + 1) % SENSORS;
 
 	// If ANY axis had high value, we should probably go to lower sensitivity mode.
 	// If ALL axes have low values, we might enable hi sensitivity mode.
-	if (abs(val) > LOWER_SENS_THR) dec_sens = 1;
-	if (abs(val) >= RAISE_SENS_THR) inc_sens = 0;
+	if (sensor < DOF) {
+		if (abs(val) > LOWER_SENS_THR) dec_sens = 1;
+		if (abs(val) >= RAISE_SENS_THR) inc_sens = 0;
+	}
 
-	if (axis == 0) {	// once all axes have been probed
+	if (sensor == 0) {	// once all sensors have been probed
 		// set sensitivity
 		if (!inlowsensmode && dec_sens) {
 			// TODO: never happens. why?
@@ -126,15 +136,15 @@ ISR(ADC_vect) {
 			int16_t defl;
 			// if current deflection from rest is bigger than the decaying one, use it as the new
 			// value
-			defl = accel[i] - rest[i];
-			if (abs(defl) < REST_THRESH) continue;
-			if (abs(defl) > abs(trail_deflection[i]))
+			defl = analog[i] - rest[i];
+			if (abs(defl) < REST_THRESHOLD) defl = 0;
+			if (abs(defl) > abs(trail_deflection[i]) + KICK_THRESHOLD)
 				trail_deflection[i] = defl;
 		}
 	}
 
 	// reset all MUX bits then set to next axis
-	ADMUX = GENERAL_MUX | pgm_read_byte(&mux_axes[axis]);
+	ADMUX = GENERAL_MUX | pgm_read_byte(&mux_sensors[sensor]);
 
 	// start conversion again
 	ADCSRA |= (1 << ADSC);
@@ -147,6 +157,7 @@ void init_decay() {
 
 uint8_t get_pwm_value(uint8_t color, int16_t lev) {
 	lev += pgm_read_word(&bias[color]);
+	// make sure that level is within bounds
 	if (lev < 0) lev = 0;
 	if (lev > 0xff) lev = 0xff;
 	return pgm_read_byte(&gamma[(uint8_t)lev]);
@@ -155,28 +166,31 @@ uint8_t get_pwm_value(uint8_t color, int16_t lev) {
 ISR(TIMER0_OVF_vect) {
 	static uint16_t decay_overflows = 0;
 	uint8_t ax;
+	int16_t d;
 
 	// disable interrupts
 	cli();
 
 	// do the decay
-	if (++decay_overflows >= decay_period) {
+	if (++decay_overflows >= analog[DECAY_IDX]) {
 		for (ax=0; ax<DOF; ax++) {
 			if (trail_deflection[ax] > 0) trail_deflection[ax]--;
 			else if (trail_deflection[ax] < 0) trail_deflection[ax]++;
 		}
 		decay_overflows = 0;
 	}
+
 	// deflections to levels
+	d = 0;
 	for (ax=0; ax<DOF; ax++) {
 		level[ax] = trail_deflection[ax] + 0x80;	// set zero at 50% power
+		d += trail_deflection[ax];
 	}
+	d = d / DOF;
 	// equalize total light amount
 	// what is added to one channel gets subtracted from others
 	for (ax=0; ax<DOF; ax++) {
-		for (uint8_t bx=0; bx<DOF; bx++) {
-			if (ax!=bx) level[ax] -= trail_deflection[bx] / (DOF - 1);
-		}
+		level[ax] += d;
 	}
 	RED   = get_pwm_value(0, level[0]);
 	GREEN = get_pwm_value(1, level[1]);
@@ -189,13 +203,13 @@ int main()
 {
 	init_lights();
 	sei();
-	init_accel();
+	init_sensors();
 	// make sure we have some stable measurement
 	_delay_ms(100);
 	// store current position as rest
 	// TODO: update rest on inactivity
 	for (int ax=0; ax<DOF; ax++) {
-		rest[ax] = accel[ax];
+		rest[ax] = analog[ax];
 	}
 	// now we can initialize the decay timer
 	init_decay();
