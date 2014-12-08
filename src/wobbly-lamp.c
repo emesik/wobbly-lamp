@@ -23,6 +23,9 @@ const uint8_t PROGMEM gamma[] = {
 	177,180,182,184,186,189,191,193,196,198,200,203,205,208,210,213,
 	215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255};
 
+// the default white balance
+const int16_t PROGMEM bias[] = {10,6,-6};
+
 #define	RED		OCR1A
 #define GREEN	OCR1B
 #define BLUE	OCR2
@@ -34,14 +37,15 @@ void init_lights() {
 	TCCR1A = (1 << COM1A1) | (1 << COM1B1) | (1 << WGM10);
 	TCCR1B = (1 << WGM12) | (1 << CS11);
 	TCCR2 = (1 << WGM21) | (1 << WGM20) | (1 << COM21) | (1 << CS21);
-	RED = GREEN = BLUE = pgm_read_byte(&gamma[0x80]);
+	RED = GREEN = BLUE = 0;
 }
 
 /***** General 3D config */
 #define DOF 3
 int16_t accel[DOF] = {0,0,0};	// X, Y, Z
-uint8_t zerog = 0;	// 0g indicator
-int16_t rest[DOF] = {0,0,0};
+int16_t trail_deflection[DOF] = {0,0,0};	// trailing deflection, subject to decaying
+#define REST_THRESH 5
+int16_t rest[DOF] = {0,0,-0x28};
 
 /***** Accelerometer's IO config */
 // use Vcc as reference, left-adjust result (8b precision)
@@ -77,7 +81,6 @@ void init_accel() {
 	// start next conversion
 	ADCSRA |= (1 << ADSC);
 }
-
 
 ISR(ADC_vect) {
 	static uint8_t inc_sens = 1, dec_sens = 0;
@@ -117,6 +120,16 @@ ISR(ADC_vect) {
 		// reset all local flags
 		inc_sens = 1;
 		dec_sens = 0;
+
+		for (uint8_t i=0; i < DOF; i++) {
+			int16_t defl;
+			// if current deflection from rest is bigger than the decaying one, use it as the new
+			// value
+			defl = accel[i] - rest[i];
+			if (abs(defl) < REST_THRESH) continue;
+			if (abs(defl) > abs(trail_deflection[i]))
+				trail_deflection[i] = defl;
+		}
 	}
 
 	// reset all MUX bits then set to next axis
@@ -126,42 +139,67 @@ ISR(ADC_vect) {
 	ADCSRA |= (1 << ADSC);
 }
 
+int16_t level[DOF] = {0x80, 0x80, 0x80};
+uint16_t decay_period = 0x40;
+
+void init_decay() {
+	TCCR0 |= (1 << CS01) | (1 << CS00);	// prescaler /64
+	TIMSK |= (1 << TOIE0);
+}
+
+uint8_t get_pwm_value(uint8_t color, int16_t lev) {
+	lev += pgm_read_word(&bias[color]);
+	if (lev < 0) lev = 0;
+	if (lev > 0xff) lev = 0xff;
+	return pgm_read_byte(&gamma[(uint8_t)lev]);
+}
+
+ISR(TIMER0_OVF_vect) {
+	static uint16_t decay_overflows = 0;
+	uint8_t ax;
+
+	// disable interrupts
+	cli();
+
+	// do the decay
+	if (++decay_overflows >= decay_period) {
+		for (ax=0; ax<DOF; ax++) {
+			if (trail_deflection[ax] > 0) trail_deflection[ax]--;
+			else if (trail_deflection[ax] < 0) trail_deflection[ax]++;
+		}
+		decay_overflows = 0;
+	}
+	// deflections to levels
+	for (ax=0; ax<DOF; ax++) {
+		level[ax] = trail_deflection[ax] + 0x80;	// set zero at 50% power
+	}
+	// equalize total light amount
+	// what is added to one channel gets subtracted from others
+	for (ax=0; ax<DOF; ax++) {
+		for (uint8_t bx=0; bx<DOF; bx++) {
+			if (ax!=bx) level[ax] -= trail_deflection[bx] / (DOF - 1);
+		}
+	}
+	RED   = get_pwm_value(0, level[0]);
+	GREEN = get_pwm_value(1, level[1]);
+	BLUE  = get_pwm_value(2, level[2]);
+
+	sei();
+}
 
 int main()
 {
-	uint8_t ax;
 	init_lights();
 	sei();
 	init_accel();
 	// make sure we have some stable measurement
 	_delay_ms(100);
 	// store current position as rest
+	// TODO: update rest on inactivity
 	for (int ax=0; ax<DOF; ax++) {
 		rest[ax] = accel[ax];
 	}
-	for (uint8_t i=0;;i++) {
-		int16_t lvl[DOF], diff[DOF];
-		_delay_ms(100);
-		// deflections to levels
-		for (ax=0; ax<DOF; ax++) {
-			diff[ax] = accel[ax] - rest[ax];
-			lvl[ax] = diff[ax] + 0x80;	// set zero at 50% power
-		}
-		// equalize total light amount
-		// what is added to one channel gets subtracted from others
-		for (ax=0; ax<DOF; ax++) {
-			for (uint8_t bx=0; bx<DOF; bx++) {
-				if (ax!=bx) lvl[ax] -= diff[bx] / (DOF - 1);
-			}
-		}
-		// make sure levels are in bounds
-		for (ax=0; ax<DOF; ax++) {
-			if (lvl[ax] < 0) lvl[ax] = 0;
-			if (lvl[ax] > 0xff) lvl[ax] = 0xff;
-		}
-		RED = pgm_read_byte(&gamma[(uint8_t)lvl[0]]);
-		GREEN = pgm_read_byte(&gamma[(uint8_t)lvl[1]]);
-		BLUE = pgm_read_byte(&gamma[(uint8_t)lvl[2]]);
-	}
-	return 0;
+	// now we can initialize the decay timer
+	init_decay();
+	while (1) {};
 }
