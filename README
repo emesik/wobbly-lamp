@@ -1,0 +1,20 @@
+wobbly lamp
+
+Lamp which reacts to movement by changing colors.
+
+It associates red, green and blue components with X, Y and Z axes respectively. The deflection from
+initial position is linearly converted to light volume in each axis and returns to normal with
+decay adjustable by a potentiometer unless the lamp gets bumped again.
+
+Hardware required:
+	* 12V supply,
+	* MMA7361 accelerometer breakout board,
+	* RGB LED strip or other similar light source with common anode,
+	* 50x50mm single layer board to make the PCB,
+	* electronic components as listed in the KiCad project (ATmega8, 3×N-FET, 3V3 regulator and
+	  a bunch of resistors, capacitors and connectors),
+
+This project aims to be an example of ATmega MCU's use of:
+	* PWM (pulse width modulation),
+	* ADC (analog to digital conversion),
+	* interrupts (timer and ADC),
